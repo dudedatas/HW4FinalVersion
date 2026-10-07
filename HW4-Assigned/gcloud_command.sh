@@ -76,6 +76,9 @@ gcloud run deploy "$API_SERVICE" \
   --port="$API_PORT" \
   --allow-unauthenticated \
   --env-vars-file="$ENV_FILE" \
+  --memory=2Gi \
+  --cpu=2 \
+  --timeout=1800 \
   --set-secrets="$SECRET_MOUNT_PATH=$GCP_KEY_SECRET:latest"
 
 # --env-vars-file just loaded GCP_SERVICE_ACCOUNT_KEY as the path on YOUR
@@ -160,6 +163,7 @@ gcloud scheduler jobs "$SCHEDULER_ACTION" http "$SCHEDULER_JOB" \
   --uri="$API_SERVER_URL$SEARCH_PATH" \
   --http-method=POST \
   --headers="Content-Type=application/json" \
+  --attempt-deadline=1800s \
   --message-body="$MESSAGE_BODY"
 
 echo

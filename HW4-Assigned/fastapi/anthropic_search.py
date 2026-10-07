@@ -1,24 +1,61 @@
 import datetime
 
-from playwright.async_api import async_playwright
+from playwright.sync_api import sync_playwright
 
 from qualification_parser import retreive_qualification
 from gemini_summarizer import return_gemini_summaries
 
 
 def retrieve_anthropic_jobs(url: str, role: str) -> list:
-    """
-    Anthropic's careers page is a client-rendered React app: the job list
-    isn't in the initial HTML response at all (unlike Google/OpenAI, which
-    are server-rendered), and typing into its search box filters the list
-    live via JavaScript with no page navigation. requests+BeautifulSoup
-    can't see any of that - this is why HW4 needs a real browser
-    (Playwright) instead of the requests/BeautifulSoup approach from HW3.
+    if not url.startswith("http"):
+        url = "https://" + url
 
-    TODO:
-    Returns a list of {"title", "link", "date"} dicts for jobs matching
-    `role`, each further annotated with "qualification" and "skills" the
-    same way HW3's add_qualification() does for the Google Search path.
-    Note: "date" could be added via datetime.date.today().strftime("%Y-%m-%d")
-    """
-    pass
+    jobs = []
+    qualifications = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        page.goto(url)
+        page.wait_for_selector("main")
+
+        search_box = page.get_by_placeholder("Search roles")
+        search_box.fill(role)
+
+        page.wait_for_selector('a[class*="jobItem"]')
+        page.wait_for_timeout(1500)
+
+        job_links = page.locator('a[class*="jobItem"]')
+
+        for i in range(job_links.count()):
+            job = job_links.nth(i)
+
+            title = job.inner_text().strip()
+            link = job.get_attribute("href")
+
+            if not link:
+                continue
+
+            if link.startswith("/"):
+                link = "https://www.anthropic.com" + link
+
+            qualification = retreive_qualification(link)
+
+            jobs.append({
+                "title": title,
+                "link": link,
+                "date": datetime.date.today().strftime("%Y-%m-%d"),
+                "qualification": qualification,
+            })
+
+            qualifications.append(qualification)
+
+        browser.close()
+
+    skills = return_gemini_summaries(qualifications)
+
+    for job, skill in zip(jobs, skills):
+        job["skills"] = skill
+
+    return jobs

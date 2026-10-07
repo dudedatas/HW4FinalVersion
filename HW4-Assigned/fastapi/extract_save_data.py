@@ -170,24 +170,50 @@ def search_and_save_jobs(search_input: SearchModel):
     """
     Combine Anthropic's dynamic (Playwright) scrape and a Vertex AI
     Search-based static search into one saved result set.
-
-    Anthropic needs to be special-cased and routed to
-    `retrieve_anthropic_jobs()` instead of `call_google_search()` - see
-    anthropic_search.py's docstring for why.
-    Other companies in company_dict should go through the VertexAI Search.
-
-    TODO:
-    1. Split search_input.company_dict into two groups: the "Anthropic"
-       entry (if present) and everything else.
-    2. For Anthropic, the code should go to the corresponding value of
-       `company_dictionary`, and search roles by typing `role_name`
-       using Playwright.
-       Extract the information including title, and URL,
-       and call qualification_parser to get qualification.
-       (optional) To improve performance you can try the asynchronous version.
-    3. Build up a single search_response dict incrementally: start it
-       empty, add Anthropic results first (if any), then call
-       call_google_search() for the remaining companies.
-    5. Save the combined search_response to GCS the same way HW3 did.
     """
-    pass
+    company_dictionary = search_input.company_dict.copy()
+
+    anthropic_url = company_dictionary.pop("Anthropic", None)
+
+    search_response = {
+        "company_dict": search_input.company_dict,
+        "job_title": search_input.job_title,
+        "results": []
+    }
+
+    if anthropic_url:
+        anthropic_results = retrieve_anthropic_jobs(
+            anthropic_url,
+            search_input.job_title
+        )
+        search_response["results"].extend(anthropic_results)
+
+    if company_dictionary:
+        search_param = GoogleSearch(
+            vertex_ai_project_id=vertex_ai_project_id,
+            search_engine_id=search_engine_id,
+            job_title=search_input.job_title,
+            company_dictionary=company_dictionary,
+            service_account_key=service_account_file_path
+        )
+
+        google_response = call_google_search(search_param)
+
+        search_response["results"].extend(
+            google_response["results"]
+        )
+
+    data = json.dumps(search_response)
+
+    today = datetime.date.today()
+    file_name = f"{file_name_prefix}/{today}.json"
+
+    gcs_upload_param = GcsStringUpload(
+        service_account_key=service_account_file_path,
+        gcp_project_id=project_id,
+        bucket_name=bucket_name,
+        file_name=file_name,
+        data=data
+    )
+
+    return save_to_gcs(gcs_upload_param)
